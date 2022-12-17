@@ -4,27 +4,36 @@
   (:gen-class))
 
 
- (def ps-pn (atom 0)) (def ps-op (atom 0))
-(def file-x (atom {} ))    (def l-pl (atom {}))
+(def ps-pn (atom 0)) (def ps-op (atom 0))      (def file-x (atom {} ))
 
 (def opt-tumble 0)    (def opt-duplex 1) ;;TODO
 (def opt-tabstop 8)  (def opt-indent 0)  (def opt-outline 1)
-
 (def TSIZE 12)  (def fsize TSIZE)  (def Hsize (+ fsize 2))
-(def pagemargin-bottom 4) (def pagemargin-left 4)
-(def pagemargin-right 4)  (def pagemargin-top 4)
-(def sheetmargin-bottom 18) (def sheetmargin-left 18) ;;points i.e. 0.25in
-(def sheetmargin-right  18) (def sheetmargin-top  18)
+
+(def ps-height 792)  (def ps-width 612);;"Letter"  TODO
+
+(def smgn-bottom 18) (def smgn-left 18) (def smgn-right 18) (def smgn-top 18)
+(def shdr-bottom  0) (def shdr-left  0) (def shdr-right  0) (def shdr-top  0)
+(def pgmgn-bottom 4) (def pgmgn-left 4) (def pgmgn-right 4) (def pgmgn-top 4)
+
+(def xbase1  (+ smgn-right shdr-right) );;now both legs of orig.==>same value!
+(def ybase1  (+ smgn-bottom shdr-bottom) )
+(def ybase3
+  (+ (/ (- ps-height smgn-bottom smgn-top shdr-bottom shdr-top) 2) ybase1) )
+(def ytop2   ybase3)    ;;used in :sh-pagepoints  ;;ditto ytop4
+(def ytop4  (+ (- ps-height smgn-bottom smgn-top shdr-bottom shdr-top) ybase1))
+(def xwid1  (- ps-width smgn-left smgn-right shdr-left shdr-right) )
+(def yht1   (- ps-height smgn-top smgn-bottom shdr-top shdr-bottom) )
+(def yht2   (/ yht1 2) )  ;;used in :sh-width
 
 
-(def zsheet {:sh-pagepoints [ [774 18] [396 18] [0 0] ]
+(def zsheet {:sh-pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]
              :sh-outline 2   :sh-rotate -90
-             :sh-height 576 :sh-width 378 :sh-plength 66 :sh-cwidth 80} )
+             :sh-height xwid1 :sh-width yht2 :sh-plength 66 :sh-cwidth 80} )
 
 
 (def fontname "Courier") (def media "Letter")
 (def MPAGE "mpage") (def VERSION "2.5.6 Januari 2008")
- (def ps-height 792)  (def ps-width 612);;"Letter"  TODO
 
 (defn ps-title "" [file-name]
   (println "%!PS-Adobe-2.0")
@@ -35,10 +44,8 @@
   (println "%%Orientation:" "Landscape") ;;TODO
   (println "%%DocumentMedia:" (format "%s %d %d" media ps-width ps-height))
   (println "%%BoundingBox:"
-           (format "%d %d %d %d"
-                   sheetmargin-left sheetmargin-bottom
-                   (- ps-width sheetmargin-right)
-                   (- ps-height sheetmargin-top)) )
+           (format "%d %d %d %d" smgn-left  smgn-bottom  (- ps-width smgn-right)
+                   (- ps-height smgn-top)) )
   (println "%%Pages: (atend)")
   (println "%%EndComments")
   (println "%%BeginProlog")
@@ -76,33 +83,14 @@
   (println (str "%%Pages:") (format "%d" @ps-op) )    )
 
 
-(def sheetheader-bottom 0) (def sheetheader-left 0);;ALL 0! Simplify??  TODO
-(def sheetheader-right  0) (def sheetheader-top  0)
-
-(defn xbase1 []
-  (if (= 0 (mod @ps-pn 2)) ;;assume opt-duplex:TRUE
-    (+ sheetmargin-right sheetheader-right)
-    (+ sheetmargin-left  sheetheader-left) )  )
-
-(defn ybase1 [] (+ sheetmargin-bottom sheetheader-bottom) )
-(defn ybase3 []
-  (+ (/ (- ps-height sheetmargin-bottom sheetmargin-top
-           sheetheader-bottom sheetheader-top )  2)
-     (ybase1)))
-  ;; ytop2  ytop4
-(defn xwid1  [] (- ps-width sheetmargin-left sheetmargin-right
-                   sheetheader-left sheetheader-right) )
-(defn yht1   [] (- ps-height sheetmargin-top sheetmargin-bottom
-                   sheetheader-top sheetheader-bottom))
-  ;; yht2
 (defn outline-1 "" []
   (printf  "0 setlinewidth\n")
-  (printf "%d %d moveto 0 %d rlineto\n"  (xbase1) (ybase1) (yht1))
-  (printf "%d 0 rlineto 0 %d rlineto closepath stroke\n" (xwid1) (- 0 (yht1))) )
+  (printf "%d %d moveto 0 %d rlineto\n"  xbase1  ybase1  yht1)
+  (printf "%d 0 rlineto 0 %d rlineto closepath stroke\n" xwid1 (- 0 yht1)) )
 
 (defn outline-2 "" []
   (outline-1 )
-  (printf "%d %d moveto %d 0 rlineto stroke\n" (xbase1) (ybase3) (xwid1))  )
+  (printf "%d %d moveto %d 0 rlineto stroke\n" xbase1  ybase3  xwid1)  )
 
 
 (defn psb-trans-rot [ pp-v]
@@ -140,10 +128,10 @@
 (defn psb-account-for-margin []
   (let [sh-width (:sh-width zsheet)   sh-plength (:sh-plength zsheet)]
     (printf "%d %d translate %d %d div %d %d div scale\n"
-            pagemargin-left    (+ pagemargin-bottom (/ fsize 4))
-            (- sh-width pagemargin-left pagemargin-right)
+            pgmgn-left    (+ pgmgn-bottom (/ fsize 4))
+            (- sh-width pgmgn-left pgmgn-right)
             sh-width
-            (- (* sh-plength fsize) pagemargin-top pagemargin-bottom)
+            (- (* sh-plength fsize) pgmgn-top pgmgn-bottom)
             (* sh-plength fsize) ) )  )
 
 
@@ -159,49 +147,50 @@
 
 (defn is-prntbl? "space..~  Excludes EOF" [ch] (and (>= ch 32) (<= ch 126)) )
 
-(defn tabcnt "" []
-  (- opt-tabstop (mod (- (:pl-new-col @l-pl) opt-indent) opt-tabstop) ) )
+(defn calnc "" [nucol]
+  (+ nucol  (- opt-tabstop (mod (- nucol opt-indent) opt-tabstop) )) )
 
-(defn nxln "" []  (swap! l-pl assoc :pl-new-line (inc (:pl-new-line @l-pl))
-                         :pl-new-col opt-indent))
-
-(defn mp-get-text "" [pbR]
-  (swap! l-pl assoc :pl-new-line (:pl-line @l-pl)  :pl-new-col (:pl-col @l-pl))
+(defn mp-get-text "" [pbR iline icol]
   (let [sh-cwidth  (:sh-cwidth zsheet)
-        oTstr  (loop [outTsq []   ichr (.read pbR) ]
-                 (if (and (is-prntbl? ichr) (< (:pl-new-col @l-pl) sh-cwidth))
-                   (do  ;;recur -- printable && fits ==> add char(s) to out-seq
-                     (swap! l-pl assoc :pl-new-col  (inc (:pl-new-col @l-pl)))
-                     (recur (if (contains? #{ \( \) \\} (char ichr))
-                             (conj outTsq \\ (char ichr)) ;;ps-esc req'd!
-                             (conj outTsq    (char ichr)))
-                           (.read pbR )) )
+        [oTstr tv]          ;; tv ==> [pl-line pl-col pl-newline pl-newcol]
+          (loop [outTsq []   ichr (.read pbR)   plnewcol icol]
+            (if (and (is-prntbl? ichr) (< plnewcol sh-cwidth))
 
-                   ;;exit -- fold,unprintable ==> only update l-pl
-                   (do (when (is-prntbl? ichr)  (.unread pbR ichr)  (nxln) )
-                       (when (= ichr -1)  (swap! file-x assoc :fin :FILE-EOF))
-                       (when (= ichr 10)  (nxln) ) ;; \n
-                       (when (= ichr  9) ;; \t
-                              (swap! l-pl assoc  :pl-new-col
-                                     (+ (:pl-new-col @l-pl) (tabcnt))))
-                       (apply str outTsq) ) )  ) ;;value: seq conv'd to string
+              (recur (if (contains? #{ \( \) \\} (char ichr))
+                         (conj outTsq \\ (char ichr)) ;;ps-esc req'd!
+                         (conj outTsq    (char ichr)))
+                       (.read pbR )
+                       (inc plnewcol) )
+              
+              [ (apply str outTsq)   ;; thus conv seq to string
+                (cond
+                 (is-prntbl? ichr)  (do (.unread pbR ichr)
+                                        [iline icol  (inc iline) opt-indent])
+                 (= ichr -1)        (do (swap! file-x assoc :fin :FILE-EOF)
+                                        [iline icol iline plnewcol])
+                 (= ichr 10)        [iline icol  (inc iline) opt-indent];\n
+                 (= ichr  9)        [iline icol iline  (calnc plnewcol)] ;\t
+                 (= ichr 13)        [iline icol iline  opt-indent] ;\r
+                 :else (do (println "fail!"ichr) [iline icol iline icol]) )
+                ]    )    )  ;; thus  returns [ string state-vec-of-int]
+        
         outTrm   (clojure.string/triml oTstr)
-        ctTrm    (count outTrm)  ]
-    (swap! l-pl assoc :pl-col (+ (:pl-col @l-pl) (- (count oTstr) ctTrm )) )
-    outTrm )    )
+        ctTrm    (count outTrm)   ];; pl-col aka (tv 1) per blanks trimmed
+    [outTrm  (assoc tv 1  (+ (tv 1) (- (count oTstr) ctTrm))) ] )    )
+
 
 (defn file-more? "" [] (= (:fin @file-x) :FILE-MORE))
 
 (defn text-onepage "" [pbR]
-  (swap! l-pl assoc :pl-line 1)
-  (loop []
-    (if (and (file-more?)  (<= (:pl-line @l-pl) (:sh-plength zsheet)))
-      (let [textA   (mp-get-text pbR)
-            {:keys [:pl-line :pl-col  :pl-new-line :pl-new-col]}  @l-pl   ]
-        (when (> (count textA) 0)  (psb-t-onepage  pl-line pl-col textA) )
-        (swap! l-pl assoc  :pl-line pl-new-line  :pl-col pl-new-col)
-        (recur)  )  ;; "then"
-      0 )  )    )
+  (loop [pline 1  pcol 0]
+    (if (and (file-more?)  (<= pline (:sh-plength zsheet)) )
+      (let [[textA  tv]                   (mp-get-text pbR pline pcol)
+            [tline tcol  tnuline tnucol]   tv  ]
+        (when (> (count textA) 0)  (psb-t-onepage  tline tcol textA) )
+        (recur tnuline tnucol)  ) ;; ala (swap!...) ;;then
+      0)
+    )
+  )
 
 
 (defn p-mp-outline "s/b from sheet" [] (when (> opt-outline 0) (outline-2))  )
@@ -248,7 +237,6 @@
     (swap! file-x assoc
          :file-date (.toString (Date. (.lastModified file-obj) ) )
          :file-name (.getName file-obj)   :file-pagenum 0    :fin :FILE-MORE)
-    (swap! l-pl assoc :pl-line 0  :pl-col 0  :pl-new-line 0  :pl-new-col 0)
     
     (do-sheets  pbR)
     (.close pbR) )   )
