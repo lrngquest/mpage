@@ -4,7 +4,7 @@
   (:gen-class))
 
 
-(def ps-pg (atom {:ps-pagenum 0  :ps-outpages 0}))
+ (def ps-pn (atom 0)) (def ps-op (atom 0))
 (def file-x (atom {} ))    (def l-pl (atom {}))
 
 (def opt-tumble 0)    (def opt-duplex 1) ;;TODO
@@ -17,10 +17,8 @@
 (def sheetmargin-right  18) (def sheetmargin-top  18)
 
 
-(declare outline-2)
-(def zsheet {:sh-pagepoints [{:skip 0 :pp-origin-y 774 :pp-origin-x 18}
-                             {:skip 0 :pp-origin-y 396 :pp-origin-x 18}]
-             :sh-outline outline-2   :sh-rotate -90
+(def zsheet {:sh-pagepoints [ [774 18] [396 18] [0 0] ]
+             :sh-outline 2   :sh-rotate -90
              :sh-height 576 :sh-width 378 :sh-plength 66 :sh-cwidth 80} )
 
 
@@ -75,14 +73,14 @@
   (print   "(\\tmpage time (s) = ) print flush usertime ")
   (print   "mp_stm sub 1000 div ==\n(\\tmpage pages = ) print")
   (println " flush pagecount mp_pgc sub ==\nend flush")
-  (println (str "%%Pages:") (format "%d" (:ps-outpages @ps-pg)) )    )
+  (println (str "%%Pages:") (format "%d" @ps-op) )    )
 
 
 (def sheetheader-bottom 0) (def sheetheader-left 0);;ALL 0! Simplify??  TODO
 (def sheetheader-right  0) (def sheetheader-top  0)
 
 (defn xbase1 []
-  (if (= 0 (mod (:ps-pagenum @ps-pg) 2)) ;;assume opt-duplex:TRUE
+  (if (= 0 (mod @ps-pn 2)) ;;assume opt-duplex:TRUE
     (+ sheetmargin-right sheetheader-right)
     (+ sheetmargin-left  sheetheader-left) )  )
 
@@ -107,8 +105,8 @@
   (printf "%d %d moveto %d 0 rlineto stroke\n" (xbase1) (ybase3) (xwid1))  )
 
 
-(defn psb-trans-rot [ pagepoint]
-  (let [{:keys [skip pp-origin-y pp-origin-x]}  pagepoint
+(defn psb-trans-rot [ pp-v]
+  (let [[pp-origin-y pp-origin-x]   pp-v
         sh-rotate  (:sh-rotate zsheet)  ]
     (printf "%d %d translate\n"  pp-origin-x  pp-origin-y)
     (when (not= sh-rotate 0)  (printf "%d rotate\n" sh-rotate) )  )  )
@@ -209,44 +207,44 @@
 (defn p-mp-outline "s/b from sheet" [] (when (> opt-outline 0) (outline-2))  )
 
 (defn pgnn "ps-comment for ps-pagenum" []
-  (let [ps-pagenum  (inc (:ps-pagenum @ps-pg)) ]
-    (swap! ps-pg assoc :ps-pagenum ps-pagenum)
-    (println (str "%%Page: " (format "%d %d" ps-pagenum ps-pagenum)))  )   )
+  (swap! ps-pn (constantly (inc @ps-pn)))
+  (println (str "%%Page: " (format "%d %d" @ps-pn @ps-pn)))   )
+
+
+(def pntx (atom (dec (count (:sh-pagepoints zsheet)))) )
 
 (defn do-text-sheet "sheet of page(s) per pagepoints" [pbR]
-  (pgnn)
-  (println "save")  ;; v--- files "Attempting to call unbound fn..."
-  (p-mp-outline) ;;(when (> opt-outline 0) ((:sh-outline zsheet))) ;;
-  (loop [i 0]
-    (if (and (file-more?) (< i (count (:sh-pagepoints zsheet) )))
+  (when (= 0  (((:sh-pagepoints zsheet) @pntx) 1) ) ;;"full" re-init sheet
+    (do (pgnn) (println "save") (p-mp-outline)  (swap! pntx (constantly 0))))
+  (loop []
+    (if (and (not= 0 (((:sh-pagepoints zsheet) @pntx) 1))  (file-more?)  )
       (do  (swap! file-x assoc  :file-pagenum (inc (:file-pagenum @file-x)) )
-        (println "gsave")
-        (psb-trans-rot  ((:sh-pagepoints zsheet)i))
-        (psb-clip-scale 1)
-        (psb-header-bar)
-        (psb-account-for-margin)
-        (println "textfont setfont")
-        (text-onepage pbR)
-        (println "grestore")
-        (recur    (inc i) ))
-      i)  )
-  (println "restore")  (println "showpage")    )
+           (println "gsave")
+           (psb-trans-rot ((:sh-pagepoints zsheet) @pntx) )
+           (psb-clip-scale 1)
+           (psb-header-bar)
+           (psb-account-for-margin)
+           (println "textfont setfont")
+           (text-onepage pbR)
+           (println "grestore")
+           (swap! pntx (constantly(inc @pntx))) ;;so to next pagepoint on sheet
+           (recur) )
+      nil)  )
+  (when (= 0  (((:sh-pagepoints zsheet) @pntx) 1) )  ;;sheet filled
+    (do (println "restore") (println "showpage")))     )
 
 
 (defn do-sheets "sheets as required for a file" [pbR]
   (loop [i 0]
     (if (and (file-more?) (< i 1024))
       (do (do-text-sheet pbR)
-          (swap! ps-pg assoc :ps-outpages (inc (:ps-outpages @ps-pg)))
-          (recur  (inc i)) )
+          (swap! ps-op (constantly (inc @ps-op)))     (recur  (inc i)) )
       i )    ))
 
 
 (defn do-file "" [file-arg]
-  (let [file-obj   (File. file-arg)
-        pbR        (->> (FileReader. file-obj)
-                        (BufferedReader.  )
-                        (PushbackReader.  ))   ]
+  (let [file-obj     (File. file-arg)
+        pbR  (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. ))]
     (swap! file-x assoc
          :file-date (.toString (Date. (.lastModified file-obj) ) )
          :file-name (.getName file-obj)   :file-pagenum 0    :fin :FILE-MORE)
@@ -259,4 +257,6 @@
 (defn -main  ""  [& args]
   (ps-title  (.getName (File. (first args) ) ) )
   (doseq [arg args]  (do-file arg))
+  (when (not= 0 (((:sh-pagepoints zsheet) @pntx) 1)) ;;assume '-c' !
+    (do (println "restore") (println "showpage")) )
   (ps-trailer)  )
