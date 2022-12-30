@@ -1,13 +1,16 @@
 (ns mpage.core
   (:import (java.io File FileReader BufferedReader PushbackReader)
-           (java.util Date))
+           (java.nio.file Path Files)
+           (java.time Instant ZoneId ZonedDateTime)
+           (java.time.format DateTimeFormatter) )
   (:gen-class))
 
 
-(def ps-pn (atom 0)) (def ps-op (atom 0))      (def file-x (atom {} ))
+(def ps-pn (atom 0)) (def ps-op (atom 0)) (def file-x (atom {} ))
+(def sheet (atom {}))
 
 (def opt-tumble 0)    (def opt-duplex 1) ;;TODO
-(def opt-tabstop 8)  (def opt-indent 0)  (def opt-outline 1)
+(def opt-tabstop 8)  (def opt-indent 0)
 (def TSIZE 12)  (def fsize TSIZE)  (def Hsize (+ fsize 2))
 
 (def ps-height 792)  (def ps-width 612);;"Letter"  TODO
@@ -27,17 +30,16 @@
 (def ybase3 (+ yht2 ybase1))
 (def ytop2   ybase3)    ;;used in :pagepoints  ;;ditto ytop4
 
-(def sheet (atom {}))
-
 (def fontname "Courier") (def media "Letter")
 (def MPAGE "mpage") (def VERSION "2.5.6 Januari 2008")
+(def fmtr  (DateTimeFormatter/ofPattern "EEE MMM dd kk:mm:ss z yyyy") )
 
 (defn ps-title "" [file-name]
   (println "%!PS-Adobe-2.0")
   (println "%%DocumentFonts:" fontname  "Times-Bold")
   (println "%%Title:" (format "%s (%s)" file-name MPAGE) )
   (println "%%Creator:" MPAGE  VERSION)
-  (println "%%CreationDate:" (.toString (Date.)) )
+  (println "%%CreationDate:"  (.format fmtr (ZonedDateTime/now)) )
   (println "%%Orientation:" "Landscape") ;;TODO
   (println "%%DocumentMedia:" (format "%s %d %d" media ps-width ps-height))
   (println "%%BoundingBox:"
@@ -86,24 +88,20 @@
   (printf "%d 0 rlineto 0 %d rlineto closepath stroke\n" xwid1 (- 0 yht1)) )
 
 (defn outline-2 "" []
-  (outline-1 )
-  (printf "%d %d moveto %d 0 rlineto stroke\n" xbase1  ybase3  xwid1)  )
+  (outline-1) (printf "%d %d moveto %d 0 rlineto stroke\n" xbase1 ybase3 xwid1))
 
 (defn outline-4 "" []
-  (outline-2)
-  (printf "%d %d moveto 0 %d rlineto stroke\n" xbase2 ybase1 yht1))
+  (outline-2) (printf "%d %d moveto 0 %d rlineto stroke\n" xbase2 ybase1 yht1))
 
 
-(defn psb-trans-rot [ pp-v]
-  (let [[pp-origin-y pp-origin-x]   pp-v
-        sh-rotate  (:rotate @sheet)  ]
+(defn psb-trans-rot [ [pp-origin-y pp-origin-x]]
+  (let [sh-rotate  (:rotate @sheet)  ]
     (printf "%d %d translate\n"  pp-origin-x  pp-origin-y)
     (when (not= sh-rotate 0)  (printf "%d rotate\n" sh-rotate) )  )  )
 
 
 (defn psb-clip-scale [  o-m-h]
-  (let [{:keys [:pagepoints :outline :rotate
-                :height :width :plength :cwidth]} @sheet
+  (let [{:keys [:height :width :plength :cwidth]} @sheet
         pheight  (+ (* plength fsize) (if (> o-m-h 0)  (+ Hsize 2)  0))  ]
     (printf "0 0 moveto 0 %d rlineto %d 0 rlineto 0 %d rlineto closepath clip\n"
             height width (- 0 height))
@@ -112,28 +110,27 @@
 
 
 (defn psb-header-bar []
-  (let [sh-plength  (:plength @sheet)    sh-cwidth  (:cwidth @sheet)
-        {:keys [:file-date :file-pagenum :file-name :fin]}  @file-x
-        pos0   (* sh-plength fsize)
+  (let [{:keys [:plength :cwidth]}  @sheet
+        {:keys [:file-date :file-pagenum :file-name]}  @file-x
+        pos0   (* plength fsize)
         pos   (+ pos0 4)   ]
-    (printf "newpath 0 %d moveto %d mp_a_x mul 0 rlineto stroke\n"
-            pos0  sh-cwidth)
+    (printf "newpath 0 %d moveto %d mp_a_x mul 0 rlineto stroke\n" pos0 cwidth)
     (printf "headerfont setfont\n")
     (printf "3 %d moveto (%s) show\n"  pos file-date)
-    (printf "%d mp_a_x mul dup (Page %d) stringwidth pop sub 3 sub %d moveto (Page %d) show\n"  sh-cwidth  file-pagenum  pos  file-pagenum)
+    (printf "%d mp_a_x mul dup (Page %d) stringwidth pop sub 3 sub %d moveto (Page %d) show\n"  cwidth  file-pagenum  pos  file-pagenum)
     (printf "fnamefont setfont\n")
     (printf "(%s) stringwidth pop sub 2 div %d moveto\n"  file-name  pos)
     (printf "(%s) show\n"  file-name)  )   )
 
 
 (defn psb-account-for-margin []
-  (let [sh-width (:width @sheet)   sh-plength (:plength @sheet)]
+  (let [{:keys [:width :plength]}  @sheet  ]
     (printf "%d %d translate %d %d div %d %d div scale\n"
             pgmgn-left    (+ pgmgn-bottom (/ fsize 4))
-            (- sh-width pgmgn-left pgmgn-right)
-            sh-width
-            (- (* sh-plength fsize) pgmgn-top pgmgn-bottom)
-            (* sh-plength fsize) ) )  )
+            (- width pgmgn-left pgmgn-right)
+            width
+            (- (* plength fsize) pgmgn-top pgmgn-bottom)
+            (* plength fsize) ) )  )
 
 
 (defn psb-t-onepage "" [ pl-line pl-col textA]
@@ -145,51 +142,49 @@
             (* fsize (- (:plength @sheet) pl-line))
             textA )  )
 
-;; Is is OK to "print" chars >=128?
-(defn is-prntbl? "space..~  Excludes EOF" [ch]
-  (or (and (>= ch 32) (<= ch 126)) (>= ch 128)) )
-(defn Xchar "" [ichr] (if (> ichr 127) \X ichr) )
+
+(defn is-prntbl? "space..~" [ch] (or (and (>= ch 32) (<= ch 126)) (>= ch 128)) )
 
 (defn calnc "" [nucol]
   (+ nucol  (- opt-tabstop (mod (- nucol opt-indent) opt-tabstop) )) )
 
-(defn mp-get-text "" [pbR iline icol]
-  (let [sh-cwidth  (:cwidth @sheet)
-        [oTstr tv]          ;; tv ==> [pl-line pl-col pl-newline pl-newcol]
-          (loop [outTsq []   ichr (.read pbR)   plnewcol icol]
-            (if (and (is-prntbl? ichr) (< plnewcol sh-cwidth))
+(defn mp-get-text "" [pbR iln icl ]
+  (let [[oTstr tv]          ;; tv :: [pl-line pl-col pl-nuline pl-nucol ich]
+          (loop [outTsq []   ich (.read pbR)   nucl icl]
 
-              (recur (if (contains? #{ \( \) \\} (char ichr))
-                         (conj outTsq \\ (char ichr)) ;;ps-esc req'd!
-                         (conj outTsq    (char (Xchar ichr))))
+            (if (and (is-prntbl? ich) (< nucl (:cwidth @sheet)) )
+
+              (recur (if (contains? #{ \( \) \\} (char ich))
+                         (conj outTsq \\ (char ich))  ;;ps-esc req'd!
+                         (conj outTsq    (if (> ich 127) \X (char ich)) ) )
                      (.read pbR )
-                     (inc plnewcol) )
+                     (inc nucl)   )
               
-              [ (apply str outTsq)   ;; thus conv seq to string
+              [ (apply str outTsq)   ;; conv seq to string
                 (cond
-                 (is-prntbl? ichr)  (do (.unread pbR ichr)
-                                        [iline icol  (inc iline) opt-indent])
-                 (= ichr -1)        (do (swap! file-x assoc :fin :FILE-EOF)
-                                        [iline icol iline plnewcol])
-                 (= ichr 10)        [iline icol  (inc iline) opt-indent];\n
-                 (= ichr  9)        [iline icol iline  (calnc plnewcol)] ;\t
-                 (= ichr 13)        [iline icol iline  opt-indent] ;\r
-                 :else (do (println "fail!"ichr) [iline icol iline icol]) )
-                ]    )    )  ;; thus  returns [ string state-vec-of-int]
+                 (is-prntbl? ich)  (do (.unread pbR ich)
+                                       [iln icl  (inc iln) opt-indent])
+                 (= ich -1)        (do (swap! file-x assoc :fin :FILE-EOF)
+                                        [iln icl iln nucl 0] )
+                 (= ich 10)        [iln icl  (inc iln)  opt-indent   ]  ;\n
+                 (= ich  9)        [iln icl  iln      (calnc nucl)   ]  ;\t
+                 (= ich 13)        [iln icl  iln        opt-indent   ]  ;\r
+                 :else (do (println "fail!"ich) [iln icl iln icl  ]) )
+                ]  )    )  ;; thus  returns [ string state-vec-of-int]
         
-        outTrm   (clojure.string/triml oTstr)
-        ctTrm    (count outTrm)   ];; pl-col aka (tv 1) per blanks trimmed
-    [outTrm  (assoc tv 1  (+ (tv 1) (- (count oTstr) ctTrm))) ] )    )
+          outTrm   (clojure.string/triml oTstr)      ]
+    
+    [outTrm   (assoc tv 1  (+ (tv 1) (- (count oTstr) (count outTrm)))) ] )   )
 
 
 (defn file-more? "" [] (= (:fin @file-x) :FILE-MORE))
 
 (defn text-onepage "" [pbR]
-  (loop [pline 1  pcol 0]
-    (when (and (file-more?)  (<= pline (:plength @sheet)) )
-      (let [[textA  [tline tcol tnuline tnucol]]  (mp-get-text pbR pline pcol) ]
-        (when (> (count textA) 0)  (psb-t-onepage  tline tcol textA) )
-        (recur tnuline tnucol)  ) ) )   )
+  (loop [pln 1  pcl 0 ]
+    (when (and (file-more?)  (<= pln (:plength @sheet)) )
+      (let [[textA  [tln tcl nuln nucl ]]       (mp-get-text pbR pln pcl    ) ]
+        (when (> (count textA) 0)               (psb-t-onepage  tln tcl textA) )
+        (recur nuln nucl )  ) ) )   )
 
 
 (defn p-mp-outline "" []
@@ -202,23 +197,24 @@
 
 (def pntx (atom 1) ) ;;must defer _real_ init until outline chosen
 
-(defn do-text-sheet "sheet of page(s) per pagepoints" [pbR]
+(defn do-text-sheet  [pbR]
   (when (= 0  (((:pagepoints @sheet) @pntx) 1) ) ;; re-init sheet '-c' 1of2
-    (do (pgnn) (println "save") (p-mp-outline)  (swap! pntx (constantly 0))))
+    (pgnn) (println "save") (p-mp-outline)  (swap! pntx (constantly 0)) )
+
   (loop []
-    (if (and (not= 0 (((:pagepoints @sheet) @pntx) 1))  (file-more?)  )
-      (do  (swap! file-x assoc  :file-pagenum (inc (:file-pagenum @file-x)) )
-           (println "gsave")
-           (psb-trans-rot ((:pagepoints @sheet) @pntx) )
-           (psb-clip-scale 1)
-           (psb-header-bar)
-           (psb-account-for-margin)
-           (println "textfont setfont")
-           (text-onepage pbR)
-           (println "grestore")
-           (swap! pntx (constantly(inc @pntx))) ;;so to next pagepoint on sheet
-           (recur) )
-      nil)  )
+    (when (and (not= 0 (((:pagepoints @sheet) @pntx) 1))  (file-more?)  )
+      (swap! file-x assoc  :file-pagenum (inc (:file-pagenum @file-x)) )
+      (println "gsave")
+      (psb-trans-rot ((:pagepoints @sheet) @pntx) )
+      (psb-clip-scale 1)
+      (psb-header-bar)
+      (psb-account-for-margin)
+      (println "textfont setfont")
+      (text-onepage pbR)
+      (println "grestore")
+      (swap! pntx (constantly(inc @pntx))) ;;so to next pagepoint on sheet
+      (recur)  )  )
+  
   (when (= 0  (((:pagepoints @sheet) @pntx) 1) )  ;;sheet filled
     (println "restore\nshowpage") )     )
 
@@ -226,19 +222,24 @@
 (defn do-sheets "sheets as required for a file" [pbR]
   (loop [i 0]
     (when (and (file-more?) (< i 1024))
-      (do (do-text-sheet pbR)
-          (swap! ps-op (constantly (inc @ps-op)))     (recur  (inc i)) ) )   ))
+      (do-text-sheet pbR)
+      (swap! ps-op (constantly (inc @ps-op)))  (recur (inc i))
+      )   ))
+
+
+(defn zoned-d-t "" [ms]
+  (ZonedDateTime/ofInstant (Instant/ofEpochMilli ms) (ZoneId/systemDefault)))
 
 
 (defn do-file "" [file-arg]
-  (let [file-obj     (File. file-arg)
-        pbR  (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. ))]
-    (swap! file-x assoc
-         :file-date (.toString (Date. (.lastModified file-obj) ) )
-         :file-name (.getName file-obj)   :file-pagenum 0    :fin :FILE-MORE)
-    
-    (do-sheets  pbR)
-    (.close pbR) )   )
+  (let [file-obj    (File. file-arg)
+        path        (.toPath file-obj)
+        file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))
+        bR   (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. )) ]
+    (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
+           :file-pagenum 0    :fin :FILE-MORE)
+    (do-sheets  bR)
+    (.close bR)   )   )
 
 
 (defn -main  ""  [& args]
@@ -255,9 +256,9 @@
       :plength 66 :cwidth 80  }  }  (first args)) )
 
   (reset! pntx  (dec (count (:pagepoints @sheet))) )  ;; opt '-c' 0of2
-
   (ps-title  (.getName (File. (second args) ) ) )
-  (doseq [fnarg (rest args)]  (do-file fnarg))
-  (when (not= 0 (((:pagepoints @sheet) @pntx) 1)) ;; '-c' 2of2
-    (do (println "restore") (println "showpage")) )
+  (doseq [fnarg (rest args)]  (do-file fnarg))       ;;  v-- '-c' 2of2
+  (when (not= 0 (((:pagepoints @sheet) @pntx) 1)) (println "restore\nshowpage"))
   (ps-trailer)  )
+
+
