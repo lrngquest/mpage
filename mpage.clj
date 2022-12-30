@@ -1,5 +1,6 @@
 #!/usr/bin/env bb
-(ns mpage  (:import java.io.File  (java.nio.file Path Files)
+(ns mpage  (:import (java.io File FileReader BufferedReader PushbackReader) 
+                    (java.nio.file Path Files)
                     (java.time Instant ZoneId ZonedDateTime)
                     (java.time.format DateTimeFormatter) )  )
 
@@ -146,9 +147,9 @@
 (defn calnc "" [nucol]
   (+ nucol  (- opt-tabstop (mod (- nucol opt-indent) opt-tabstop) )) )
 
-(defn mp-get-text "rewriten for bb" [pbR iln icl pbc]
+(defn mp-get-text "" [pbR iln icl ]
   (let [[oTstr tv]          ;; tv :: [pl-line pl-col pl-nuline pl-nucol ich]
-          (loop [outTsq []   ich (if (= 0 pbc) (.read pbR) pbc)   nucl icl]
+          (loop [outTsq []   ich (.read pbR)   nucl icl]
 
             (if (and (is-prntbl? ich) (< nucl (:cwidth @sheet)) )
 
@@ -159,14 +160,15 @@
                      (inc nucl)   )
               
               [ (apply str outTsq)   ;; conv seq to string
-                (cond                         ;; thus push back----v
-                 (is-prntbl? ich)  [iln icl  (inc iln)  opt-indent ich]
+                (cond
+                 (is-prntbl? ich)  (do (.unread pbR ich)
+                                       [iln icl  (inc iln) opt-indent])
                  (= ich -1)        (do (swap! file-x assoc :fin :FILE-EOF)
                                         [iln icl iln nucl 0] )
-                 (= ich 10)        [iln icl  (inc iln)  opt-indent  0]  ;\n
-                 (= ich  9)        [iln icl  iln      (calnc nucl)  0]  ;\t
-                 (= ich 13)        [iln icl  iln        opt-indent  0]  ;\r
-                 :else (do (println "fail!"ich) [iln icl iln icl 0]) )
+                 (= ich 10)        [iln icl  (inc iln)  opt-indent   ]  ;\n
+                 (= ich  9)        [iln icl  iln      (calnc nucl)   ]  ;\t
+                 (= ich 13)        [iln icl  iln        opt-indent   ]  ;\r
+                 :else (do (println "fail!"ich) [iln icl iln icl  ]) )
                 ]  )    )  ;; thus  returns [ string state-vec-of-int]
         
           outTrm   (clojure.string/triml oTstr)      ]
@@ -176,12 +178,12 @@
 
 (defn file-more? "" [] (= (:fin @file-x) :FILE-MORE))
 
-(defn text-onepage "rewriten for bb" [pbR]
-  (loop [pln 1  pcl 0  pbc 0]
+(defn text-onepage "" [pbR]
+  (loop [pln 1  pcl 0 ]
     (when (and (file-more?)  (<= pln (:plength @sheet)) )
-      (let [[textA  [tln tcl nuln nucl nupbc]]  (mp-get-text pbR pln pcl pbc) ]
+      (let [[textA  [tln tcl nuln nucl      ]]  (mp-get-text pbR pln pcl    ) ]
         (when (> (count textA) 0)               (psb-t-onepage  tln tcl textA) )
-        (recur nuln nucl nupbc)  ) ) )   )
+        (recur nuln nucl      )  ) ) )   )
 
 
 (defn p-mp-outline "" []
@@ -220,7 +222,7 @@
   (loop [i 0]
     (when (and (file-more?) (< i 1024))
       (do-text-sheet pbR)
-      (swap! ps-op (constantly (inc @ps-op)))  (recur (inc i))  )  )  )
+      (swap! ps-op (constantly (inc @ps-op)))  (recur (inc i))     )   ))
 
 
 (defn zoned-d-t "" [ms]
@@ -231,7 +233,8 @@
   (let [file-obj    (File. file-arg)
         path        (.toPath file-obj)
         file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))    ]
-    (with-open [bR   (Files/newBufferedReader path) ]    
+    (with-open
+        [bR  (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. )) ]
       (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
              :file-pagenum 0    :fin :FILE-MORE)
       (do-sheets  bR)  ) )   )
@@ -239,7 +242,7 @@
 
 (defn -main  ""  [& oargs]
   (let [args  (if (clojure.string/starts-with? (first oargs) "-")  oargs
-                  (conj oargs "-2") )  ]
+                  (conj oargs "-2") )  ]    ;; default to 2 pages per sheet
     (reset! sheet (       ;; initialize 'sheet' per chosen outline
 {"-1"{:pagepoints [ [ybase1 xbase1] [0 0] ]                    :outline 1
       :rotate 0 :height yht1 :width xwid1 :plength 66 :cwidth 80} 
