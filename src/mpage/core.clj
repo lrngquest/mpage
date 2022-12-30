@@ -17,31 +17,17 @@
 (def pgmgn-bottom 4) (def pgmgn-left 4) (def pgmgn-right 4) (def pgmgn-top 4)
 
 (def xbase1  (+ smgn-right shdr-right) );;now both legs of orig.==>same value!
-(def xbase2 (+(/ (- ps-width smgn-left smgn-right shdr-left shdr-right) 2)
-              smgn-left shdr-left) )
 (def ybase1  (+ smgn-bottom shdr-bottom) )
-(def ybase3
-  (+ (/ (- ps-height smgn-bottom smgn-top shdr-bottom shdr-top) 2) ybase1) )
-(def ytop2   ybase3)    ;;used in :sh-pagepoints  ;;ditto ytop4
 (def ytop4  (+ (- ps-height smgn-bottom smgn-top shdr-bottom shdr-top) ybase1))
 (def xwid1  (- ps-width smgn-left smgn-right shdr-left shdr-right) )
 (def xwid2  (/ xwid1 2))
+(def xbase2 (+ xwid2 smgn-left shdr-left))
 (def yht1   (- ps-height smgn-top smgn-bottom shdr-top shdr-bottom) )
-(def yht2   (/ yht1 2) )  ;;used in :sh-width
+(def yht2   (/ yht1 2) )  ;;used in :width
+(def ybase3 (+ yht2 ybase1))
+(def ytop2   ybase3)    ;;used in :pagepoints  ;;ditto ytop4
 
-
-(def zsheet2 {:sh-pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]
-             :sh-outline 2   :sh-rotate -90
-             :sh-height xwid1 :sh-width yht2 :sh-plength 66 :sh-cwidth 80} )
-(def zsheet1 {:sh-pagepoints [ [ybase1 xbase1] [0 0] ]
-             :sh-outline 1   :sh-rotate 0
-              :sh-height yht1 :sh-width xwid1 :sh-plength 66 :sh-cwidth 80} )
-(def zsheet {
-    :sh-pagepoints [ [ybase3 xbase1]  [ybase1 xbase1]
-                     [ybase3 xbase2]  [ybase1 xbase2] [0 0] ]
-    :sh-rotate 0   :sh-outline 4  :sh-height yht2  :sh-width xwid2
-    :sh-plength 66 :sh-cwidth 80  } )
-
+(def sheet (atom {}))
 
 (def fontname "Courier") (def media "Letter")
 (def MPAGE "mpage") (def VERSION "2.5.6 Januari 2008")
@@ -110,23 +96,23 @@
 
 (defn psb-trans-rot [ pp-v]
   (let [[pp-origin-y pp-origin-x]   pp-v
-        sh-rotate  (:sh-rotate zsheet)  ]
+        sh-rotate  (:rotate @sheet)  ]
     (printf "%d %d translate\n"  pp-origin-x  pp-origin-y)
     (when (not= sh-rotate 0)  (printf "%d rotate\n" sh-rotate) )  )  )
 
 
 (defn psb-clip-scale [  o-m-h]
-  (let [{:keys [:sh-pagepoints :sh-outline :sh-rotate
-                :sh-height :sh-width :sh-plength :sh-cwidth]} zsheet
-        pheight  (+ (* sh-plength fsize) (if (> o-m-h 0)  (+ Hsize 2)  0))  ]
+  (let [{:keys [:pagepoints :outline :rotate
+                :height :width :plength :cwidth]} @sheet
+        pheight  (+ (* plength fsize) (if (> o-m-h 0)  (+ Hsize 2)  0))  ]
     (printf "0 0 moveto 0 %d rlineto %d 0 rlineto 0 %d rlineto closepath clip\n"
-            sh-height sh-width (- 0 sh-height))
+            height width (- 0 height))
     (printf "%d %d mp_a_x mul div %d %d div scale\n"
-            sh-width sh-cwidth sh-height pheight)  )   )
+            width cwidth height pheight)  )   )
 
 
 (defn psb-header-bar []
-  (let [sh-plength  (:sh-plength zsheet)    sh-cwidth  (:sh-cwidth zsheet)
+  (let [sh-plength  (:plength @sheet)    sh-cwidth  (:cwidth @sheet)
         {:keys [:file-date :file-pagenum :file-name :fin]}  @file-x
         pos0   (* sh-plength fsize)
         pos   (+ pos0 4)   ]
@@ -141,7 +127,7 @@
 
 
 (defn psb-account-for-margin []
-  (let [sh-width (:sh-width zsheet)   sh-plength (:sh-plength zsheet)]
+  (let [sh-width (:width @sheet)   sh-plength (:plength @sheet)]
     (printf "%d %d translate %d %d div %d %d div scale\n"
             pgmgn-left    (+ pgmgn-bottom (/ fsize 4))
             (- sh-width pgmgn-left pgmgn-right)
@@ -156,7 +142,7 @@
               0   "0"
               1   "mp_a_x"
               (format "%d mp_a_x mul"  pl-col)  )
-            (* fsize (- (:sh-plength zsheet) pl-line))
+            (* fsize (- (:plength @sheet) pl-line))
             textA )  )
 
 
@@ -166,7 +152,7 @@
   (+ nucol  (- opt-tabstop (mod (- nucol opt-indent) opt-tabstop) )) )
 
 (defn mp-get-text "" [pbR iline icol]
-  (let [sh-cwidth  (:sh-cwidth zsheet)
+  (let [sh-cwidth  (:cwidth @sheet)
         [oTstr tv]          ;; tv ==> [pl-line pl-col pl-newline pl-newcol]
           (loop [outTsq []   ichr (.read pbR)   plnewcol icol]
             (if (and (is-prntbl? ichr) (< plnewcol sh-cwidth))
@@ -198,34 +184,30 @@
 
 (defn text-onepage "" [pbR]
   (loop [pline 1  pcol 0]
-    (if (and (file-more?)  (<= pline (:sh-plength zsheet)) )
-      (let [[textA  tv]                   (mp-get-text pbR pline pcol)
-            [tline tcol  tnuline tnucol]   tv  ]
+    (when (and (file-more?)  (<= pline (:plength @sheet)) )
+      (let [[textA  [tline tcol tnuline tnucol]]  (mp-get-text pbR pline pcol) ]
         (when (> (count textA) 0)  (psb-t-onepage  tline tcol textA) )
-        (recur tnuline tnucol)  ) ;; ala (swap!...) ;;then
-      0)
-    )
-  )
+        (recur tnuline tnucol)  ) ) )   )
 
 
 (defn p-mp-outline "" []
-  (case (:sh-outline zsheet)  1 (outline-1)  2 (outline-2)  4 (outline-4)) )
+  (case (:outline @sheet)  1 (outline-1)  2 (outline-2)  4 (outline-4)) )
 
 (defn pgnn "ps-comment for ps-pagenum" []
   (swap! ps-pn (constantly (inc @ps-pn)))
   (println (str "%%Page: " (format "%d %d" @ps-pn @ps-pn)))   )
 
 
-(def pntx (atom (dec (count (:sh-pagepoints zsheet)))) ) ;; opt '-c' 0of2
+(def pntx (atom 1) ) ;;must defer _real_ init until outline chosen
 
 (defn do-text-sheet "sheet of page(s) per pagepoints" [pbR]
-  (when (= 0  (((:sh-pagepoints zsheet) @pntx) 1) ) ;; re-init sheet '-c' 1of2
+  (when (= 0  (((:pagepoints @sheet) @pntx) 1) ) ;; re-init sheet '-c' 1of2
     (do (pgnn) (println "save") (p-mp-outline)  (swap! pntx (constantly 0))))
   (loop []
-    (if (and (not= 0 (((:sh-pagepoints zsheet) @pntx) 1))  (file-more?)  )
+    (if (and (not= 0 (((:pagepoints @sheet) @pntx) 1))  (file-more?)  )
       (do  (swap! file-x assoc  :file-pagenum (inc (:file-pagenum @file-x)) )
            (println "gsave")
-           (psb-trans-rot ((:sh-pagepoints zsheet) @pntx) )
+           (psb-trans-rot ((:pagepoints @sheet) @pntx) )
            (psb-clip-scale 1)
            (psb-header-bar)
            (psb-account-for-margin)
@@ -235,16 +217,15 @@
            (swap! pntx (constantly(inc @pntx))) ;;so to next pagepoint on sheet
            (recur) )
       nil)  )
-  (when (= 0  (((:sh-pagepoints zsheet) @pntx) 1) )  ;;sheet filled
-    (do (println "restore") (println "showpage")))     )
+  (when (= 0  (((:pagepoints @sheet) @pntx) 1) )  ;;sheet filled
+    (println "restore\nshowpage") )     )
 
 
 (defn do-sheets "sheets as required for a file" [pbR]
   (loop [i 0]
-    (if (and (file-more?) (< i 1024))
+    (when (and (file-more?) (< i 1024))
       (do (do-text-sheet pbR)
-          (swap! ps-op (constantly (inc @ps-op)))     (recur  (inc i)) )
-      i )    ))
+          (swap! ps-op (constantly (inc @ps-op)))     (recur  (inc i)) ) )   ))
 
 
 (defn do-file "" [file-arg]
@@ -259,8 +240,22 @@
 
 
 (defn -main  ""  [& args]
-  (ps-title  (.getName (File. (first args) ) ) )
-  (doseq [arg args]  (do-file arg))
-  (when (not= 0 (((:sh-pagepoints zsheet) @pntx) 1)) ;; '-c' 2of2
+  (reset! sheet (   ;; initialize 'sheet' per outline-option-arg
+{"-1"{:pagepoints [ [ybase1 xbase1] [0 0] ]
+      :outline 1   :rotate 0
+      :height yht1 :width xwid1 :plength 66 :cwidth 80} 
+ "-2"{:pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]
+      :outline 2   :rotate -90
+      :height xwid1 :width yht2 :plength 66 :cwidth 80}
+ "-4"{:pagepoints [ [ybase3 xbase1]  [ybase1 xbase1]
+                     [ybase3 xbase2]  [ybase1 xbase2] [0 0] ]
+      :rotate 0   :outline 4  :height yht2  :width xwid2
+      :plength 66 :cwidth 80  }  }  (first args)) )
+
+  (reset! pntx  (dec (count (:pagepoints @sheet))) )  ;; opt '-c' 0of2
+
+  (ps-title  (.getName (File. (second args) ) ) )
+  (doseq [fnarg (rest args)]  (do-file fnarg))
+  (when (not= 0 (((:pagepoints @sheet) @pntx) 1)) ;; '-c' 2of2
     (do (println "restore") (println "showpage")) )
   (ps-trailer)  )
