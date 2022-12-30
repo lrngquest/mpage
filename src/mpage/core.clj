@@ -145,8 +145,10 @@
             (* fsize (- (:plength @sheet) pl-line))
             textA )  )
 
-
-(defn is-prntbl? "space..~  Excludes EOF" [ch] (and (>= ch 32) (<= ch 126)) )
+;; Is is OK to "print" chars >=128?
+(defn is-prntbl? "space..~  Excludes EOF" [ch]
+  (or (and (>= ch 32) (<= ch 126)) (>= ch 128)) )
+(defn Xchar "" [ichr] (if (> ichr 127) \X ichr) )
 
 (defn calnc "" [nucol]
   (+ nucol  (- opt-tabstop (mod (- nucol opt-indent) opt-tabstop) )) )
@@ -159,9 +161,9 @@
 
               (recur (if (contains? #{ \( \) \\} (char ichr))
                          (conj outTsq \\ (char ichr)) ;;ps-esc req'd!
-                         (conj outTsq    (char ichr)))
-                       (.read pbR )
-                       (inc plnewcol) )
+                         (conj outTsq    (char (Xchar ichr))))
+                     (.read pbR )
+                     (inc plnewcol) )
               
               [ (apply str outTsq)   ;; thus conv seq to string
                 (cond
