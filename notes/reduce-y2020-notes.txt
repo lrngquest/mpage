@@ -1,0 +1,466 @@
+//2020Dec05
+Start a java backport of mpage/core.clj as basis of (extended)
+native-image version of mpage  (replace tmpg3; add e.g. -4 -1 ).
+Start with the top-of-call-tree fns: main .. mp_get_text.
+
+
+//2020Dec08
+  ln -s /Users/EdV/Documents/IdeaProjects/jcal/src/nimpg.java .
+  javac -d .  nimpg.java
+  java nimpg emPi0208.txt >ni-out.txt
+
+Initial version _seems_ to work; now need a cut-down clj version to
+generate comparable output.
+Note that use of PushbackReader is most natural for java, so use  lein run
+which implies make a skeletal lein project here.
+
+ mkdir -p src/mpage
+ mv bptest.clj src/mpage/core.next
+ cp -pv ../../redo/mpage/project.clj .
+ cp -pv ../../redo/mpage/src/mpage/core.bak src/mpage/core.clj
+ lein run emPi0208.txt >e.ps  # make sure original works  YES
+After resolving cut/paste error, omitted defs:
+ lein run emPi0208.txt >cn-out.txt
+ wc *out.txt
+     263    1912    7719 cn-out.txt
+     263    1912    7894 ni-out.txt
+
+But diff shows mismatches
+ diff -w -u cn-out.txt ni-out.txt |less
+--- cn-out.txt  2020-12-09 09:29:39.000000000 -0600
++++ ni-out.txt  2020-12-08 16:31:17.000000000 -0600
+@@ -1,4 +1,4 @@
+- 1  1 cycles 136  disp_buf  0.                        
++ 1  0  cycles 136  disp_buf  0.                        
+  2  0 a[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  3  0 b[9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 2, 0]
+  4  0 c[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+@@ -7,257 +7,257 @@
+  7  0 m[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  8  0 s[0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+  9  0 p12
+-10  1 0  34: .111.1..11 ->  0 116 l 0  34:
+-10 40 go to l 0 116
+-11  1 0 116: 1.11.1...1 ->  0 180 l 0 116:
+-11 40 jsb l 0 180
+...
+
++10  0  0  34: .111.1..11 ->  0 116 l 0  34:
++10  5 go to l 0 116
++11  0  0 116: 1.11.1...1 ->  0 180 l 0 116:
++11  5 jsb l 0 180
+...
+
+Found that trimming of blanks was _omitted_ in  nimpg.java.
+64c64
+<             String outTrm = outTseq.toString();
+---
+>             String outTrm = outTseq.toString().trim();
+Results still not right!
+
+Also, Tab handling bad?
+Error in prefix to infix translation fn calnc
+22c22
+<         return ( nucol - opt_indent) % opt_tabstop;
+---
+>         return nucol + (opt_tabstop - ((nucol - opt_indent) % opt_tabstop));
+Results _still_ differ!  TODO
+
+
+//2020Dec10
+Need a new small test case; focus on first diff in core.clj v.s. nimpg.java.
+ diff  -w cn-out.txt ni-out3.txt |less
+1c1
+<  1  1 cycles 136  disp_buf  0.                        
+---
+
+>  1 25 cycles 136  disp_buf  0.
+
+Make 1 line test file; run both, confirm diff occurs.
+Start adding traces.
+...
+case 10  tv[1, 0, 2, 0]
+tv[1, 0, 2, 0]
+  textA| cycles 136  disp_buf  0.                        |
+ outTrm|cycles 136  disp_buf  0.|
+ 1 25 cycles 136  disp_buf  0.
+...
+Clearly (!) the .trim() is _not_ what we want here since it does _both_
+leading and trailing blanks!
+
+Use a regex replace
+  https://howtodoinjava.com/java/string/remove-leading-whitespaces/
+64c67
+<             String outTrm = outTseq.toString().trim();
+---
+>             String outTrm = outTseq.toString().replaceAll("^\\s+", "");
+
+
+    1056: 20 39 2C 20 39 2C 20 32  2C 20 30 5D 0A 20 30 20 |  9, 9, 2, 0]. 0 
+    1072: 31 38 39 3A 20 2E 2E 2E  2E 31 31 2E 2E 2E 2E 20 | 189: ....11.... 
+    1088: 20 20 20 20 20 20 20 20  20 09 72 65 74 75 72 6E |          .return
+    1104: 0A 20 30 20 31 31 37 3A  20 2E 2E 31 2E 2E 31 2E | . 0 117: ..1..1.
+    1120: 2E 2E 2E 20 2D 3E 20 20  31 20 31 31 38 20 09 73 | ... ->  1 118 .s
+    1136: 65 6C 65 63 74 20 72 6F  6D 20 31 09 09 3B 20 2D | elect rom 1..; -
+    1152: 3E 20 6C 20 31 20 31 31  38 0A                   | > l 1 118.
+
+26  1 0 189: ....11....          
+
+--- cje27.txt	2020-12-10 13:48:47.000000000 -0600
++++ nie27.txt	2020-12-10 13:49:23.000000000 -0600
+@@ -37,4 +37,6 @@
+ 26 32 return
+ 27  1 0 117: ..1..1.... ->  1 118 
+ 27 32 select rom 1
+-27 56 ; -> l 1 118
++pushback
++27 56 ; -> l 1 1
++28  0 18
+
+Note 'pushback' looks _odd_.  Adding trace
+...
+26  1 0 189: ....11....          
+  26 32 ichr:114  entering
+  [26, 32, 26, 32] ichr:10
+  [26, 32, 27, 0]  case 10
+  exiting
+26 32 return
+  27  0 ichr:32  entering
+  [27, 0, 27, 0] ichr:9
+  [27, 0, 27, 32]  case 9
+  exiting
+27  1 0 117: ..1..1.... ->  1 118 
+  27 32 ichr:115  entering
+  [27, 32, 27, 32] ichr:9
+  [27, 32, 27, 48]  case 9
+  exiting
+27 32 select rom 1
+  27 48 ichr:9  entering
+  [27, 48, 27, 48] ichr:9
+  [27, 48, 27, 56]  case 9
+  exiting
+  27 56 ichr:59  entering
+  [27, 56, 27, 56] ichr:49
+  [27, 56, 28, 0]  pushback ichr:49
+  exiting
+27 56 ; -> l 1 1
+  28  0 ichr:49  entering
+  [28, 0, 28, 0] ichr:10
+  [28, 0, 29, 0]  case 10
+  exiting
+28  0 18
+  29  0 ichr:-1  entering
+  [29, 0, 29, 0] ichr:-1
+  exiting                          
+
+
+//2020Dec11
+Cause of problem not clear.  Adding (6) trace outputs to fn  mp-get-text
+...
+26 32 return
+  27  0  entering
+  [27 0 27 32]  case 9
+  exiting
+27  1 0 117: ..1..1.... ->  1 118 
+  27 32  entering
+  [27 32 27 48]  case 9
+  exiting
+27 32 select rom 1
+  27 48  entering
+  [27 48 27 56]  case 9
+  exiting
+  27 56  entering
+  [27 56 28 0]  case 10
+  exiting
+27 56 ; -> l 1 118
+  28  0  entering
+  exiting
+
+(inspiration!) TBTG
+Apparent exceeding width of an output line is leading to the "pushback".
+In nimpg.java  ... sh_cwidth = 66 ... but in core.clj ... :sh-cwidth 80} !
+
+Thus all due to a WRONG constant value !!
+17c17,18
+<     private static int opt_indent = 0, opt_tabstop = 8;
+---
+>     private static int opt_indent = 0, opt_tabstop = 8,
+>             sh_cwidth = 80;  //NOTE s/b in zsheet!  TODO
+28,29c29
+<         //destructure sh-cwidth from zsheet  TODO
+<         int ichr = 0, sh_cwidth = 66, plnewcol = icol;
+---
+>         int ichr = 0,  plnewcol = icol;
+
+ java nimpg emPi0208.txt >niout5.txt
+ diff -u -w cn-out.txt niout5.txt  #empty output ==> no differences
+  shasum  cn-out.txt niout5.txt
+e094d42750ae74990d7f6eb26183ab2d1da5bc95  cn-out.txt
+e094d42750ae74990d7f6eb26183ab2d1da5bc95  niout5.txt
+
+Time to start adding in increments of "data-plane" e.g. postcript gen?
+Maybe start by implementing  psb_t_onepage()   DONE
+
+ diff cjout2.txt niout6.txt   #empty result
+ shasum cjout2.txt niout6.txt
+701aec680c33353df1384e6897eefd78158a85fc  cjout2.txt
+701aec680c33353df1384e6897eefd78158a85fc  niout6.txt
+
+Next consider adding in some subordinates of do_text_sheet():
+ pgnn()  various println()  p_mp_outline() ? 
+
+
+//2020Dec12
+Inspiration: init of nimpg 'pntx' wrong -- must be
+ (dec(count pagepoints)) i.e. 2!  DONE
+
+ java nimpg emPi0208.txt >niout7.txt
+ diff cjout3.txt niout7.txt  #empty ==> no difference  TBTG!
+
+Now continue with implementing other psb* fns.
+ ps_titls()  DONE
+
+Plan for adding options for 1,4 pages per sheet
+- look as 1st char of 1st arg -- if a '-' use 2nd char as e.g. index
+  into [-1 0 1 2]
+- use index on a vec-of-3-sheet maps (ala 'zsheet')
+  Note in 'nimpg.java' could use static init. block to build the 3
+   sheetmaps, then put refs to same into Object[].
+  And might "destructure" contents of the selected sheetmap into
+   individual (appropriately typed) member vars, since these will
+   not be written again during a given program run.
+
+- write the new sheetmaps -- :sh-pagelength 66  :sh-cwidth 80  for _all_
+  4-pages-case {
+    :sh-pagepoints [ [ybase3 xbase1]  [ybase1 xbase1]
+                     [ybase3 xbase2]  [ybase1 xbase2] [0 0] ]
+    :sh-rotate 0   :sh-outline outline4  :sh-height yht2  :sh-width xwid2 }
+
+  1-page-case {
+    :sh-pagepoints [ [ybase1 xbase1]  [0 0] ]
+    :sh-rotate 0   :sh-outline outline1  :sh-height yht1  :sh-width xwid1 }
+     
+- Add constants
+  - xwid2  ( / xwid1 2)
+  - xbase2 ;;TODO
+- Add fn  outline4  xbase2
+
+=== from mpage-2.5.7/page.c       NOTE: simplify  all smgn-X:18 shdr-X:0 TODO
+
+int xbase2() {
+        int val;
+
+        if ( opt_duplex && ((ps_pagenum % 2) == 0))
+                val = ( ps_width - sheetmargin_left - sheetmargin_right
+                          - sheetheader_left - sheetheader_right) / 2 +
+                sheetmargin_right + sheetheader_right;
+        else
+                val = ( ps_width - sheetmargin_left - sheetmargin_right
+                          - sheetheader_left - sheetheader_right) / 2 +
+                sheetmargin_left + sheetheader_left;
+         return  (val);
+}
+
+void outline_4( outfd)
+ FILE *outfd;  {
+        outline_2( outfd);
+        fprintf( outfd, "%d %d moveto 0 %d rlineto stroke\n",
+                xbase2(), ybase1(), yht1());
+        return;
+}
+===
+
+
+//2020Dec14
+Possible test sequence (using bb version of mpage);
+    ../../mpage.clj -> redo/mpage/src/mpage/core.cljc
+- write new outline1 sheetmap and test via hard modifications
+- necessary additions, then similar test for outline4
+- write and test a args processing change allowing _optional_ first arg
+  as selector of sheetmap
+
+The outline1 test produces _5_ pages of ~40 lines each!  Dec15
+
+Returning to nimpg.java.
+Examination of ps_title output shows missing spaces -- differing
+behavior of java string concat in println v.s. clojure.
+
+Reached functional parity (for outline_2 case) today!
+
+
+//2020Dec15
+Back to sheet_1 testing.
+For use with 'bb' -- using reduce, no PushbackReader, et. al.
+   ls -al ../../mpage.clj
+../../mpage.clj -> redo/mpage/src/mpage/core.cljc
+
+  diff ../../mpage.clj mpage.clj |less
+32c32
+< (def zsheet {:sh-pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]
+---
+> (def sheet2 {:sh-pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]
+35c35,37
+< 
+---
+> (def zsheet {:sh-pagepoints [ [ybase1 xbase1] [0 0] ]
+>              :sh-outline 1   :sh-rotate 0
+>              :sh-height yht1 :sh-width xwid1 :sh-plength 66 :sh-cwidth 80} )
+198c200
+< (defn p-mp-outline "s/b from sheet" [] (when (> opt-outline 0) (outline-2))  )
+---
+> (defn p-mp-outline "s/b from sheet" [] (when (> opt-outline 0) (outline-1))  )
+
+Now add some tracing to try to find why only ~43 lines per page!
+
+Appaarently this error pertains to the "newest" i.e. reduce, bb, etc version!!
+Prehaps an artifact of loop-removal?  TODO
+
+Maybe should shift to  lein run  and use the loop-recur code?
+Copied "sep 2 2019" core.bak  to  core.clj.
+Make testing changes to latter:
++(def zsheet {:sh-pagepoints [ [ybase1 xbase1] [0 0] ]
++             :sh-outline 1   :sh-rotate 0
++              :sh-height yht1 :sh-width xwid1 :sh-plength 66 :sh-cwidth 80} )
+
++(defn p-mp-outline "" []
++  (case (:sh-outline zsheet)  1 (outline-1)  2 (outline-2)  4 (outline-4)) )
+
+   lein run emPi0208.txt >ex.ps
+And proper -1 output!  TBTG
+
+Next we consider the changes to support -4 output.
+
++(def xbase2 (+(/ (- ps-width smgn-left smgn-right shdr-left shdr-right) 2)
++              smgn-left shdr-left) )
+
++(def xwid2  (/ xwid1 2))
+
++(def zsheet {
++    :sh-pagepoints [ [ybase3 xbase1]  [ybase1 xbase1]
++                     [ybase3 xbase2]  [ybase1 xbase2] [0 0] ]
++    :sh-rotate 0   :sh-outline 4  :sh-height yht2  :sh-width xwid2
++    :sh-plength 66 :sh-cwidth 80  } )
+
++(defn outline-4 "" []
++  (outline-2)
++  (printf "%d %d moveto 0 %d rlineto stroke\n" xbase2 ybase1 yht1))
+
+   lein run emPi0208.txt >ex.ps
+And proper -4 output!  TBTG
+
+
+//2020Dec16
+Check  nimpg.java  Dec14 backed up.  YES
+Restructure  nimpg.java  for;
+- ability for multiple outlines 1,2,4  DONE
+- select same via cmd line param
+
+Allow for outlines by
+  int[][] sh_pagepoints...  int[] shx 0..5 OU RO HE WI PL CW
+
+thus init as follows:
+outline_1
+  {{ybase1, xbase1} {0,0}}   {1, 0, yht1, xwid1, 66, 80}
+outline_2
+  {{ytop4, xbase1}, {ytop2, xbase1}, {0,0}}   {2, -90, xwid1, yht2, 66, 80}
+outline_4
+  {{ybase3, xbase1}, {ybase1, xbase1}, {ybase3, xbase2}, {ybase1 xbase2}, {0,0}}
+   {4, 0, yht2, xwid2, 66, 80}
+
+Now add logic for using _optional_ first arg to select outline.
+
+If  1st char == '-'  use 2nd char as int in existing switch-stmt
+  then adjust args so that 2nd..last args are used as filenames
+  else default to outline_2 and use all args as filenames.
+Success!
+
+Try a small test of map-of-maps, outer keyed by string, inner sheet.
+( see planetarymoons.clj  for  example.)
+(def vmaxm {"Io"0.0147 "Europa"0.0117 "Ganymede"0.0092"Callisto"0.0070} )
+(defn calcDeltaT [ mpos]
+  (let [vmax    (vmaxm (:name mpos)) ... ]  ))
+
+{"-1"{:sh-pagepoints [ [ybase1 xbase1] [0 0] ]
+      :sh-outline 1   :sh-rotate 0
+      :sh-height yht1 :sh-width xwid1 :sh-plength 66 :sh-cwidth 80} 
+ "-2"{:sh-pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]
+      :sh-outline 2   :sh-rotate -90
+      :sh-height xwid1 :sh-width yht2 :sh-plength 66 :sh-cwidth 80}
+ "-4"{:sh-pagepoints [ [ybase3 xbase1]  [ybase1 xbase1]
+                     [ybase3 xbase2]  [ybase1 xbase2] [0 0] ]
+      :sh-rotate 0   :sh-outline 4  :sh-height yht2  :sh-width xwid2
+      :sh-plength 66 :sh-cwidth 80  }
+}
+
+Combine with minimal (-main...) and access m-of-m with arg[0].
+Should work with 'bb'.  DONE
+
+
+//2020Dec17
+Possible next steps:
+- make a jar for  nimpg.java
+- build native-image (compile wi. jdk8?)  Review prior notes. Dec18
+
+- continue on changes to core.clj ala above  (backup Dec15 core.clj OK)
+  - minimal arg processing -- _require_ outline as 1st arg    DONE
+  - add sheet atom and initialize same                        DONE
+  - cleanup/refactor                                          DONE
+    - simplify names in "sheets" map
+    - simplify expr for "precomputed" consts  (ala nimpg.java)
+    - replace _some_ (if...) with (when...)
+  - ??  (Allow outline-option to default if absent?)
+
+
+//2020Dec18
+Re: making a native-image (Where are my notes e.g. tmpg3 ?  ~Jan20)
+  ../../tool-up/diary-native-img.txt  # argh -- failed examples only!
+  ../../y2019/mpage2/mpage3/note.txt  # Yes!
+
+In a suitable directory (e.g. ./ni):
+- MUST build with Java8 (class ver:52 to match GRAAL version we have!)
+  export JAVA_HOME=$(/usr/libexec/java_home -v1.8)
+  java -version
+  javac nimpg.java
+
+- make a jar and test
+  jar --create --file nimpg.jar  nimpg.class  # Ok to add  nimpg.java
+  unzip  nimpg.jar  META-INF/MANIFEST.MF
+     # Edit to add main class.  "Main-Class: nimpg"
+  zip -u nimpg.jar  META-INF/MANIFEST.MF
+
+- make the native-image from the jar
+  export GRAALVM_HOME=~/bin/graalvm-ce-java8-19.3.0.2/Contents/Home
+  $GRAALVM_HOME/bin/native-image -jar nimpg.jar
+Build on Server(pid: 613, port: 49155)
+[nimpg:613]    classlist:     301.65 ms
+[nimpg:613]        (cap):   2,952.80 ms
+[nimpg:613]        setup:  10,352.62 ms
+[nimpg:613]   (typeflow):   7,013.99 ms
+[nimpg:613]    (objects):   3,856.26 ms
+[nimpg:613]   (features):     331.04 ms
+[nimpg:613]     analysis:  26,460.79 ms
+[nimpg:613]     (clinit):     264.50 ms
+[nimpg:613]     universe:   5,848.74 ms
+[nimpg:613]      (parse):   1,825.27 ms
+[nimpg:613]     (inline):   2,855.74 ms
+[nimpg:613]    (compile):  15,608.92 ms
+[nimpg:613]      compile:  36,039.48 ms
+[nimpg:613]        image:   1,344.90 ms
+[nimpg:613]        write:     449.08 ms
+[nimpg:613]      [total]: 116,411.90 ms
+
+-rw-r--r--  1 EdV  staff    11496 Dec 18 11:03 nimpg.class
+-rw-r--r--  1 EdV  staff    10451 Dec 18 11:11 nimpg.jar
+-rwxr-xr-x  1 EdV  staff  5456784 Dec 18 11:13 nimpg
+
+  ./nimpg nimpg.java >n2.ps
+  ./nimpg -4 nimpg.java >n4.ps
+Checked with 'preview' and seems OK!
+
+
+//2021Jan18
+Rebuilt native-image on latest src which includes substituting 'X' for
+chars >=128 e.g. copyright, degrees.
+
+Be careful with --create to add  "Main-Class: nimpg" AND touch the
+ MANIFEST.MF before  zip -u ... !!

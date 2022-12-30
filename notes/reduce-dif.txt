@@ -1,0 +1,120 @@
+--- v1c/core.clj	2019-09-02 19:20:38.000000000 -0500
++++ v2d/core.clj	2021-09-30 09:46:52.000000000 -0500
+@@ -150,21 +150,24 @@
+ (defn calnc "" [nucol]
+   (+ nucol  (- opt-tabstop (mod (- nucol opt-indent) opt-tabstop) )) )
+ 
+-(defn mp-get-text "" [pbR iline icol]
++
++(defn mp-get-text "" [Rdr iline icol] ;;f4ar.clj
+   (let [sh-cwidth  (:sh-cwidth zsheet)
+-        [oTstr tv]          ;; tv ==> [pl-line pl-col pl-newline pl-newcol]
+-          (loop [outTsq []   ichr (.read pbR)   plnewcol icol]
++        [oTstr tv]
++        (reduce
++         (fn [[outTsq ichr plnewcol]  v]
+             (if (and (is-prntbl? ichr) (< plnewcol sh-cwidth))
+-
+-              (recur (if (contains? #{ \( \) \\} (char ichr))
++             [
++              (if (contains? #{ \( \) \\} (char ichr))
+                          (conj outTsq \\ (char ichr)) ;;ps-esc req'd!
+                          (conj outTsq    (char ichr)))
+-                       (.read pbR )
+-                       (inc plnewcol) )
++              (.read Rdr )
++              (inc plnewcol)  ]  ;; then "return" new a
+               
++             (reduced           
+               [ (apply str outTsq)   ;; thus conv seq to string
+                 (cond
+-                 (is-prntbl? ichr)  (do (.unread pbR ichr)
++                (is-prntbl? ichr) (do (.unread Rdr ichr)
+                                         [iline icol  (inc iline) opt-indent])
+                  (= ichr -1)        (do (swap! file-x assoc :fin :FILE-EOF)
+                                         [iline icol iline plnewcol])
+@@ -172,7 +175,8 @@
+                  (= ichr  9)        [iline icol iline  (calnc plnewcol)] ;\t
+                  (= ichr 13)        [iline icol iline  opt-indent] ;\r
+                  :else (do (println "fail!"ichr) [iline icol iline icol]) )
+-                ]    )    )  ;; thus  returns [ string state-vec-of-int]
++               ]      )  )   ) 
++         [[]  (.read Rdr)  icol]  (range 1024)) ;;v ?
+         
+         outTrm   (clojure.string/triml oTstr)
+         ctTrm    (count outTrm)   ];; pl-col aka (tv 1) per blanks trimmed
+@@ -181,17 +185,16 @@
+ 
+ (defn file-more? "" [] (= (:fin @file-x) :FILE-MORE))
+ 
+-(defn text-onepage "" [pbR]
+-  (loop [pline 1  pcol 0]
++
++(defn text-onepage "" [Rdr]
++   (reduce
++    (fn [[pline pcol] v]
+     (if (and (file-more?)  (<= pline (:sh-plength zsheet)) )
+-      (let [[textA  tv]                   (mp-get-text pbR pline pcol)
+-            [tline tcol  tnuline tnucol]   tv  ]
++        (let [[textA  [tline tcol  tnuline tnucol]]  (mp-get-text Rdr pline pcol)  ]
+         (when (> (count textA) 0)  (psb-t-onepage  tline tcol textA) )
+-        (recur tnuline tnucol)  ) ;; ala (swap!...) ;;then
+-      0)
+-    )
+-  )
+-
++          [tnuline tnucol ]  ) ;;update state vals  ;;then
++        (reduced 0) )   )      ;;else
++    [1 0 ]   (range 1024)  )    )  ;; (:sh-plength zsheet)
+ 
+ (defn p-mp-outline "s/b from sheet" [] (when (> opt-outline 0) (outline-2))  )
+ 
+@@ -202,10 +205,13 @@
+ 
+ (def pntx (atom (dec (count (:sh-pagepoints zsheet)))) )
+ 
+-(defn do-text-sheet "sheet of page(s) per pagepoints" [pbR]
++
++(defn do-text-sheet "sheet of page(s) per pagepoints" [Rdr]
+   (when (= 0  (((:sh-pagepoints zsheet) @pntx) 1) ) ;;"full" re-init sheet
+     (do (pgnn) (println "save") (p-mp-outline)  (swap! pntx (constantly 0))))
+-  (loop []
++  
++  (reduce
++   (fn [a v]
+     (if (and (not= 0 (((:sh-pagepoints zsheet) @pntx) 1))  (file-more?)  )
+       (do  (swap! file-x assoc  :file-pagenum (inc (:file-pagenum @file-x)) )
+            (println "gsave")
+@@ -214,21 +220,21 @@
+            (psb-header-bar)
+            (psb-account-for-margin)
+            (println "textfont setfont")
+-           (text-onepage pbR)
++           (text-onepage Rdr)
+            (println "grestore")
+-           (swap! pntx (constantly(inc @pntx))) ;;so to next pagepoint on sheet
+-           (recur) )
+-      nil)  )
++           (swap! pntx (constantly(inc @pntx)))  ) ;;so to next pagept on sheet
++       (reduced 0))     )
++   0   (range 8)) ;;don't expect >8 pg-per-sheet
++  
+   (when (= 0  (((:sh-pagepoints zsheet) @pntx) 1) )  ;;sheet filled
+     (do (println "restore") (println "showpage")))     )
+ 
+-
+-(defn do-sheets "sheets as required for a file" [pbR]
+-  (loop [i 0]
+-    (if (and (file-more?) (< i 1024))
+-      (do (do-text-sheet pbR)
+-          (swap! ps-op (constantly (inc @ps-op)))     (recur  (inc i)) )
+-      i )    ))
++(defn do-sheets "sheets as required for a file" [Rdr]
++  (reduce
++   (fn [a v] (if (file-more?)
++              (do (do-text-sheet Rdr)  (swap! ps-op (constantly(inc @ps-op))))
++              (reduced v) )  )
++   0  (range 1024)   )  ) ;;1024 ==> arbitrary
+ 
+ 
+ (defn do-file "" [file-arg]

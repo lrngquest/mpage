@@ -1,0 +1,33 @@
+//2022Dec30
+
+
+Further analysis of proposed file for v2d :: v2.4 raised questions --
+ although the  v2d  file date is _later_ than  v2c  file date,
+ the contents seem similar to an earlier functional version!
+
+Searching contemporary sources for the (closest, i.e. mimimal diff)
+   $ diff -u -w v1c/core.clj v2d/core.clj |less
+
+       # lines  120   in fn  mp-get-text  text-onepage  do-text-sheet  do-sheets
+       # _all_ in re:  s/loop/reduce/ !  :: a closer match!
+This suggests a "branch" for coding experiment, _NOT_ a development step.
+
+How to best describe?
+- shasums
+  - v1c/core.clj ( aka /proj-backup/2019/m09/d02/mp-core.clj)    ...6770465af
+  - v2d/core.clj ( aka /proj-backup/2021/m09d30bkp-mpg-core.clj) ...5f7ce0dd6
+
+- vmpg EdV$ diff -u -w v1c/core.clj v2d/core.clj   >reduce-dif.txt
+
+- see notes from the second exercise
+   $ ln -s ~/Documents/toys/clj-proj-supp/y2021/issues/bkp-mpg/anote.txt v2d/reduce-anote.txt
+
+Context
+This is a redo of prior code exercise loop -> reduce  which exceeded
+its "timebox" without  succeeding.
+
+Notes from original, incomplete exercise:
+   15237 Jan 18  2021  /y2020/backport-mpg/notes.txt  (Dec 14,15)
+are softlinked here as  reduce-y2020-notes.txt
+
+

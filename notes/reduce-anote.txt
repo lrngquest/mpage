@@ -1,0 +1,116 @@
+//2021Aug26
+Reprise of  loop -> reduce  (see y2020/backport-mpg/note.txt Dec 14..15).
+
+We found a discrepancy in testing and for expediency rebased src from;
+     redo/mpage/src/mpage/core.cljc
+to:  redo/mpage/src/mpage/core.bak  (i.e.  core.clj  of 2019Sep02)
+
+Testing with 'outline1' on  emPi0208.txt  produced 5 pages of ~43 lines/page
+instead of expected 2p of 66 lines, 1p of <66 lines.
+
+Suspected (not confirmed at the time) trouble in (mp-get-text...) due
+to the added complexity of working around lack of PushbackReader in bb.
+
+Yesterday printed a diff of above -- apparently 4 sections due to replacing
+loop with reduce.  Consider series of tests replacing one fn per test.
+
+  do-sheets      # seems simple
+  do-test-sheet  # a bit more complex; s/b do-able
+  test-onepate   # seems simple but Note coupling to mp-get-text signature!
+  mp-get-text    # complex; retain loop if other tests pass?
+
+Tactics for testing
+- use Clojure and cli-tools
+- start with  core.clj (aka core.bak)  replacing 1 fn at a time
+- NOT replacing  (mp-get-text...)  so must adjust call in  (do-text-sheet...)
+- test with  emPi0208.txt  v.s.  e.ps
+
+   export PATH=$PATH:~/infrastructure/clojure/bin    #   /tool-up/set-clj.txt
+
+   bkp-mpg EdV$ clojure -M -m mpage.core emPi0208.txt >et0.ps
+   bkp-mpg EdV$ diff e.ps et0.ps    # no essential difference!
+5c5
+< %%CreationDate: Wed Dec 09 09:06:38 CST 2020
+---
+> %%CreationDate: Sat Aug 28 10:38:16 CDT 2021
+
+
+Replace  (do-sheets...)  with reduce version from  core.bb; retest;  OK!
+Replace  (do-text-sheet...)                       (ditto) ; retest;  OK!
+
+Replace  (text-onepage...)                                ; retest; FAILS!
+  2 v.s. 3 sheets; 3 v.s. 5 pages  Undo change.
+
+
+   bkp-mpg EdV$ bb core.bb emPi0208.txt >ebb.ps
+   bkp-mpg EdV$ diff  et2.ps ebb.ps
+Note CreationDate missing as expected; format of date differs on each page;
+i.e. no unexpected differences between  core.cljc   and the "reduce"
+version  text-onepage  as tested above!
+
+IF the adaption in  (text-onepage...)  where it calls  (mp-get-text)
+was correct, then there remains a logic error therein which is sufficient
+to produce the results found in 2019Dec APART from any error that may be in 
+the "reduce" version of  (mp-get-text...)  (which has yet not been inserted 
+in this test) !
+
+Suppose we leave the  "loop"  in (text-onepage...) for now, is it possible
+to rewrite  (mp-get-text...)  using a Pushbackreader and with "reduce" ?
+
+Isolate two versions of fn  mp-get-text (i.e. f[34].clj); print side-by-side;
+ edit to f[34]a.clj to lessen diff; modify f4a.clj to f4ar.clj to use pushback.
+
+
+//2021Aug30
+Substitute in f4ar.clj as ( mp-get-text...) ; retest;  OK!
+   bkp-mpg EdV$ diff e.ps et4.ps
+5c5
+< %%CreationDate: Wed Dec 09 09:06:38 CST 2020
+---
+> %%CreationDate: Mon Aug 30 10:59:00 CDT 2021
+
+Thus have now successfully used reduce in  do-sheets do-text-sheet mp-get-text !
+
+Similar process for (text-onepage...)  BUT still FAILS!
+
+
+//2021Sep30
+A bit of inspiration from yesterday -- the reduce version of  test-onepage  may
+fail on  emPi0208.txt  because initial (range...) value is _too small_ !
+
+(IIRC occurred previouisly when un-looping projects.  Find ref? TODO)
+
+Analysis
+ Symptom: pages have too few lines i.e. 43 instead of 66
+
+ Examining  emPi0208.txt  and  emPi0208.ps  shows clearly that a
+ single text line can produce _two_ ps output lines.  E.g.
+
+--- emPi0208.txt lines 9..10
+p12
+ 0  34: .111.1..11 ->  0 116 l 0  34:   go to l 0 116
+
+--- e.ps  lines 55..57
+0 684 moveto (p12) show
+mp_a_x 672 moveto (0  34: .111.1..11 ->  0 116 l 0  34:) show
+40 mp_a_x mul 672 moveto (go to l 0 116) show
+
+A confusion between counting lines to appear on page and lines of ps
+emitted may be occurring.
+
+Proposed fix: excerpt of core.clj diff:
+@@ -201,7 +194,7 @@
+           (when (> (count textA) 0)  (psb-t-onepage  tline tcol textA) )
+           [tnuline tnucol ]  ) ;;update state vals  ;;then
+         (reduced 0) )   )      ;;else
+-    [1 0 ]   (range (:sh-plength zsheet))  )    ))
++    [1 0 ]   (range 1024)  )    )  ;; (:sh-plength zsheet)
+ 
+ (defn p-mp-outline "s/b from sheet" [] (when (> opt-outline 0) (outline-2))  )
+
+The '1024' is _arbitrary_ and chosen to be many multiples of the :sh-plength
+since it is unclear what worst case of 1-text-line :: many-ps-lines will be!
+
+Results:  Success!  TBTG
+(differs from reference e.ps _only_ in  %%CreationDate:  )
+
