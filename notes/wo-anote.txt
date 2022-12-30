@@ -1,0 +1,62 @@
+//2022Jul30
+Starting with the simplest exercise of using with-open in  mpage.clj
+(based on just using in  calc_35/cli.clj  ).
+
+Baseline  (date-time agrees with listing in proj file folder)
+  $ pwd  /Users/EdV/Documents/toys/clj-proj-supp/projects/gh-prep-x
+  $ ls -l  mb/mpage.clj
+-rwxr-xr-x  1 EdV  staff  10767 May  2 19:55 mb/mpage.clj
+
+  $ ln -s
+ ~/Documents/toys/clj-proj-supp/projects/gh-prep-x/mb/mpage.clj  mb-mpage.clj
+
+  $ cp -pv mb-mpage.clj mpage.clj
+
+Edit this to add with-open.  Works!
+
+   $ ./mpage.clj -2 mb-mpage.clj >mb1.ps
+   $ nimpg mb-mpage.clj >nmb.ps
+   $ diff -u -w nmb.ps mb1.ps |less    # only CreationDate differs!
+
+Simplest version of the diff shows lines changed: 1 removed, 1 inserted, 1 removed.
+
+   wo-mpg EdV$ diff  -w mb-mpage.clj mpage.clj |less
+234,235c234,235
+<         file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))
+<         bR          (Files/newBufferedReader path)        ]
+---
+>         file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))    ]
+>     (with-open [bR   (Files/newBufferedReader path) ]    
+238,239c238
+<     (do-sheets  bR)
+<     (.close bR)   )   )
+---
+>       (do-sheets  bR)  ) )   )
+
+Make some touch-up edits to add white-space to  core.clj  (in fn  text-onwpage  )
+which better clarifies diff with  mpage.clj.
+
+Make with-open edits to  core.clj  Works!
+
+   $ bb -cp src -m mpage.core -2 mb-mpage.clj >mb2.ps
+   $ diff mb1.ps mb2.ps  # only CreationDate differs!
+   $ diff nmb.ps mb2.ps  # ditto
+
+Made source diffs.
+
+Revisit testing (Did (above)  mpage/core.clj  really _work_ with  bb  ??):
+   wo-mpg EdV$ clojure -M -m mpage.core -2 mb-mpage.clj >cx.ps
+   wo-mpg EdV$ bb -cp src -m mpage.core -2 mb-mpage.clj >bx.ps
+   wo-mpg EdV$ diff cx.ps bx.ps 
+5c5
+< %%CreationDate: Sat Jul 30 20:06:00 CDT 2022
+---
+> %%CreationDate: Sat Jul 30 20:06:23 CDT 2022
+
+Yes! apparently so.  IIRC at some past point we could not get an mpage
+with pushbackReader to work with (older)  bb  but _now_ it seems OK!
+Among other things this means no need to have separate logic for Clojure, bb!!
+
+Backup todays src files (starting,ending)  DONE
+
+

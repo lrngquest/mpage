@@ -1,0 +1,118 @@
+Conclusion
+----------
+
+Babashka (bb) as late as v0.4.4 _did_ have a problem with PushbackReader support;
+and the problem was fixed <= v0.8.0 (used at time of writing; not latest!).
+
+Thus, the alternate (non PbR) logic _was_ needed  2020Jan20  but the "fork"
+went on longer than necessary (until 2022Jul30 test !) because I was not
+prompt in adopting new bb releases!
+
+
+Initial comments
+----------------
+
+The mpagebb.clj listing dated 2020-01-20 shows the non-PbR alternative logic,
+so the _initial_ observation had been made by then.
+
+Per   /y2020/y2020proj.txt
+---
+    - bb  (wi. src modifications)  WORKS  Jan20 (?)
+      (remove e.g. PushbackReader, other non-avail Java classes)
+---
+
+The version of bb in use on 2020Jan20 was not noted, or has been lost,
+however in   /y2021/possible-proj.txt
+---
+      ... updated to bb v0.4.4 2021Jun05
+---
+
+
+First evidence fork NOT needed at bb v0.8.0 (the _positive_ test)
+-----------------------------------------------------------------
+
+While testing changes to non-PbR and PbR versions of  mpage  on 2022Jul30
+I was surprised to find the PbR version worked with _both_  bb  and  Clojure!
+
+Per  /m-wo/anote.txt
+===
+Make with-open edits to  core.clj  Works!
+
+   $ bb -cp src -m mpage.core -2 mb-mpage.clj >mb2.ps
+   $ diff mb1.ps mb2.ps  # only CreationDate differs!
+   $ diff nmb.ps mb2.ps  # ditto
+...
+Revisit testing (Did (above)  mpage/core.clj  really _work_ with  bb  ??):
+   wo-mpg EdV$ clojure -M -m mpage.core -2 mb-mpage.clj >cx.ps
+   wo-mpg EdV$ bb -cp src -m mpage.core -2 mb-mpage.clj >bx.ps
+   wo-mpg EdV$ diff cx.ps bx.ps 
+5c5
+< %%CreationDate: Sat Jul 30 20:06:00 CDT 2022
+---
+> %%CreationDate: Sat Jul 30 20:06:23 CDT 2022
+
+Yes! apparently so.
+===
+
+
+Confirmed by retesting bb v0.4.4 (the _negative_ test)
+------------------------------------------------------
+
+Fortunately Michiel Borkent has kept previous releases of bb available
+for download from Github.  Once I had the relevant old release number,
+ it was easy to install on Aug31 a (local) v0.4.4.
+
+A new (non #!) version of  mpage  was prepared; see diff  below.
+
+======
+
+$ diff -w -u mpage.clj mpagenx.clj 
+--- mpage.clj   2022-08-23 10:45:52.000000000 -0500
++++ mpagenx.clj 2022-08-31 14:39:35.000000000 -0500
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env bb
++
+ (ns mpage
+   (:import  (java.io File FileReader BufferedReader PushbackReader)
+             (java.time Instant ZoneId LocalDateTime))    )
+@@ -245,11 +245,12 @@
+       (do-sheets  bR)  ) )   )
+ 
+ 
+-(defn -main  ""  [& args]
++(defn tmain  ""  [& args]
+   (ps-title  (.getName (io/File. (first args) ) ) )
+   (doseq [arg args]  (do-file arg))
+   (when (not= 0 (((:sh-pagepoints zsheet) @pntx) 1)) ;;assume '-c' !
+     (do (println "restore") (println "showpage")) )
+   (ps-trailer)  )
+ 
+-(apply -main *command-line-args*)
++;;(apply -main *command-line-args*)
++
+======
+
+
+When tested, an exception was raised:
+
+===
+user=> (load-file "mpagenx.clj")
+#'mpage/tmain
+user=> (mpage/tmain "mpage.clj")
+%!PS-Adobe-2.0
+...
+(mpage.clj) stringwidth pop sub 2 div 796 moveto
+(mpage.clj) show
+4 7 translate 370 378 div 784 792 div scale
+textfont setfont
+java.lang.IllegalArgumentException: No matching method read found
+    taking 0 args for class java.io.PushbackReader [at
+  /Users/EdV/Documents/toys/clj-proj-supp/projects/gh-prep-x/m2x/mpagenx.clj:250:22]
+===
+
+Maybe bb v0.0.4 intended to support PushbackReader but was incomplete
+in some way.
+
+However this test confirms that non-PbR logic was needed (as least) in
+2020 January.
+

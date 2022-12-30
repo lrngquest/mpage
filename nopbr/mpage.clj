@@ -231,12 +231,11 @@
 (defn do-file "" [file-arg]
   (let [file-obj    (File. file-arg)
         path        (.toPath file-obj)
-        file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))
-        bR          (Files/newBufferedReader path)        ]
-    (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
-           :file-pagenum 0    :fin :FILE-MORE)
-    (do-sheets  bR)
-    (.close bR)   )   )
+        file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))    ]
+    (with-open [bR   (Files/newBufferedReader path) ]    
+      (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
+             :file-pagenum 0    :fin :FILE-MORE)
+      (do-sheets  bR)  ) )   )
 
 
 (defn -main  ""  [& args]

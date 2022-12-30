@@ -182,9 +182,9 @@
 (defn text-onepage "" [pbR]
   (loop [pln 1  pcl 0 ]
     (when (and (file-more?)  (<= pln (:plength @sheet)) )
-      (let [[textA  [tln tcl nuln nucl ]]       (mp-get-text pbR pln pcl    ) ]
+      (let [[textA  [tln tcl nuln nucl      ]]  (mp-get-text pbR pln pcl    ) ]
         (when (> (count textA) 0)               (psb-t-onepage  tln tcl textA) )
-        (recur nuln nucl )  ) ) )   )
+        (recur nuln nucl      )  ) ) )   )
 
 
 (defn p-mp-outline "" []
@@ -234,12 +234,12 @@
 (defn do-file "" [file-arg]
   (let [file-obj    (File. file-arg)
         path        (.toPath file-obj)
-        file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))
-        bR   (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. )) ]
-    (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
-           :file-pagenum 0    :fin :FILE-MORE)
-    (do-sheets  bR)
-    (.close bR)   )   )
+        file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))    ]
+    (with-open
+        [bR  (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. )) ]
+      (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
+             :file-pagenum 0    :fin :FILE-MORE)
+      (do-sheets  bR)  ) )   )
 
 
 (defn -main  ""  [& args]
