@@ -1,6 +1,5 @@
 #!/usr/bin/env bb
-(ns mpage  (:import (java.io File FileReader BufferedReader PushbackReader) 
-                    (java.nio.file Path Files)
+(ns mpage  (:import (java.io File FileReader BufferedReader PushbackReader)
                     (java.time Instant ZoneId ZonedDateTime)
                     (java.time.format DateTimeFormatter) )  )
 
@@ -8,7 +7,7 @@
 (def ps-pn (atom 0)) (def ps-op (atom 0)) (def file-x (atom {} ))
 (def sheet (atom {}))
 
-(def opt-tumble 0)    (def opt-duplex 1) ;;TODO
+(def opt-tumble 0)    (def opt-duplex 1)
 (def opt-tabstop 8)  (def opt-indent 0)
 (def TSIZE 12)  (def fsize TSIZE)  (def Hsize (+ fsize 2))
 
@@ -231,19 +230,18 @@
 
 (defn do-file "" [file-arg]
   (let [file-obj    (File. file-arg)
-        path        (.toPath file-obj)
         file-d-t    (.format fmtr (zoned-d-t (.lastModified file-obj)))    ]
     (with-open
         [bR  (->> (FileReader. file-obj) (BufferedReader. )(PushbackReader. )) ]
-      (swap! file-x assoc  :file-date file-d-t  :file-name (.toString path)
-             :file-pagenum 0    :fin :FILE-MORE)
+      (swap! file-x assoc  :file-date file-d-t  :file-pagenum 0
+             :file-name (.toString (.toPath file-obj))   :fin :FILE-MORE)
       (do-sheets  bR)  ) )   )
 
 
-(defn -main  ""  [& oargs]
+(defn -main  ""  [& oargs] ;; arg for outline or  2 pages per sheet default
   (let [args  (if (clojure.string/starts-with? (first oargs) "-")  oargs
-                  (conj oargs "-2") )  ]    ;; default to 2 pages per sheet
-    (reset! sheet (       ;; initialize 'sheet' per chosen outline
+                                                           (conj oargs "-2"))  ]
+    (reset! sheet (       ;; initialize 'sheet' per choice
 {"-1"{:pagepoints [ [ybase1 xbase1] [0 0] ]                    :outline 1
       :rotate 0 :height yht1 :width xwid1 :plength 66 :cwidth 80} 
  "-2"{:pagepoints [ [ytop4 xbase1] [ytop2 xbase1] [0 0] ]      :outline 2 
